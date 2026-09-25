@@ -1,0 +1,8 @@
+{
+    "name": "HeightIsTime.Runtime",
+    "rootNamespace": "HeightIsTime",
+    "references": [
+        "Unity.InputSystem"
+    ],
+    "autoReferenced": true
+}

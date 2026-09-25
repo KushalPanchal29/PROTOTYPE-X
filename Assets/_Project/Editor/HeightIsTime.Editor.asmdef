@@ -1,0 +1,13 @@
+{
+    "name": "HeightIsTime.Editor",
+    "rootNamespace": "HeightIsTime.EditorTools",
+    "references": [
+        "HeightIsTime.Runtime",
+        "Unity.InputSystem",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "autoReferenced": false
+}

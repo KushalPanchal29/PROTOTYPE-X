@@ -13,15 +13,15 @@
         "**/*.unityproj": true,
         "**/*.dll": true,
         "**/*.exe": true,
-        "**/*.pdf": true,
+        "Assets/**/*.pdf": true,
         "**/*.mid": true,
         "**/*.midi": true,
         "**/*.wav": true,
         "**/*.gif": true,
         "**/*.ico": true,
-        "**/*.jpg": true,
-        "**/*.jpeg": true,
-        "**/*.png": true,
+        "Assets/**/*.jpg": true,
+        "Assets/**/*.jpeg": true,
+        "Assets/**/*.png": true,
         "**/*.psd": true,
         "**/*.tga": true,
         "**/*.tif": true,
@@ -60,12 +60,12 @@
         "*.asset": "yaml",
         "*.meta": "yaml",
         "*.prefab": "yaml",
-        "*.unity": "yaml",
+        "*.unity": "yaml"
     },
     "explorer.fileNesting.enabled": true,
     "explorer.fileNesting.patterns": {
         "*.sln": "*.csproj",
         "*.slnx": "*.csproj"
     },
-    "dotnet.defaultSolution": "PROTOTYPE X.slnx"
+    "dotnet.defaultSolution": "PROTOTYPE-X.slnx"
 }
