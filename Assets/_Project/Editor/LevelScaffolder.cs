@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -8,11 +9,11 @@ using UnityEngine.UI;
 namespace HeightIsTime.EditorTools
 {
     /// <summary>
-    /// Builds the first greybox version of the level: 3 rooms, player, clock, camera and HUD.
-    /// Run it once. After that, edit the scene by hand; running it again overwrites the scene.
+    /// Builds the greybox level: 3 rooms, player, clock, camera and HUD. Running it again overwrites the scene,
+    /// so after the team starts hand-editing, stop using it.
     ///
-    /// Numbers to know (1 unit = 1 m): the player is 0.8 x 1 and jumps 2 m. Each room's ground line is where
-    /// the player's centre is when standing at time 0, so standing 3 m above it = time 3.
+    /// Numbers to know (1 unit = 1 m): the player is 0.8 x 1 and jumps 2 m. The floor top is y = 0 everywhere,
+    /// so the player's feet height equals world time (1 s per meter): standing on a 3 m ledge = time 3.
     /// </summary>
     public static class LevelScaffolder
     {
@@ -23,11 +24,19 @@ namespace HeightIsTime.EditorTools
         const string NoFrictionPath = ArtFolder + "/NoFriction.physicsMaterial2D";
         const string InputActionsPath = "Assets/Settings/InputSystem_Actions.inputactions";
 
+        // Player centre when standing on the floor (y = 0) => time 0.
+        const float GroundY = 0.5f;
+
         static readonly Color Ground = new Color(0.45f, 0.45f, 0.48f);
-        static readonly Color LiftColor = new Color(0.30f, 0.80f, 0.90f);
+        static readonly Color WallColor = new Color(0.30f, 0.80f, 0.90f);
         static readonly Color BridgeColor = new Color(0.95f, 0.60f, 0.20f);
-        static readonly Color RockColor = new Color(0.90f, 0.25f, 0.25f);
+        static readonly Color DangerColor = new Color(0.90f, 0.25f, 0.25f);
         static readonly Color ExitColor = new Color(0.30f, 0.85f, 0.40f);
+        static readonly Color ClockColor = new Color(1f, 1f, 1f, 0.08f);
+        static readonly Color HandColor = new Color(1f, 0.75f, 0.3f, 0.5f);
+
+        // Sorting: time lines and clocks behind everything, moving walls behind the floor so they sink "into" it.
+        const int RulerOrder = -20, ClockOrder = -15, SinkOrder = -1, RockOrder = 1, PlayerOrder = 10;
 
         static Sprite square;
         static Material material;
@@ -48,74 +57,15 @@ namespace HeightIsTime.EditorTools
         {
             CreateArtAssets();
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-
             Transform level = new GameObject("Level").transform;
 
-            // ---------- Room 1: The Lift (ride it up by jumping) ----------
-            Transform room1 = Group("Room1_Lift", level);
-            Box("Floor", new Vector2(-5f, -1f), new Vector2(3f, 0f), Ground, room1);
-            Box("LeftWall", new Vector2(-6f, -1f), new Vector2(-5f, 12f), Ground, room1);
-            // The tall block right of the lift is Room 1's wall and Room 2's starting ledge (top at 6.5).
-            Box("StartLedge", new Vector2(3f, -1f), new Vector2(8f, 6.5f), Ground, level);
+            RoomZone zone1 = BuildRoom1(level);
+            BuildRoom2(level);
+            ExitGoal exitGoal = BuildRoom3(level);
+            Kill("OutOfBounds", new Vector2(-30f, -14f), new Vector2(70f, -12f), level);
 
-            // Lift: 2 x 0.5, top rests at 0.5. Standing on it the player's centre is 1.0 -> room ground line.
-            // It travels 6 m over time 0..6, so standing still on it never moves it (see TimeMathTests).
-            GameObject lift = Box("Lift", new Vector2(1f, 0f), new Vector2(3f, 0.5f), LiftColor, room1);
-            RoomZone zone1 = Zone("Zone1", new Vector2(-5f, -1f), new Vector2(3.2f, 12f), groundY: 1f, maxTime: 6f,
-                respawn: new Vector2(-2f, 1f), parent: room1);
-            AddMover(lift, new Vector2(2f, 0.25f), new Vector2(2f, 6.25f), 0f, 6f,
-                maxSpeed: 4f, deadZone: 0.05f, room: zone1);
-
-            // ---------- Room 2: The Future Bridge (only solid from time 6) ----------
-            Transform room2 = Group("Room2_Bridge", level);
-            Transform bridge = Group("FutureBridge", room2);
-            Box("BridgeLeft", new Vector2(8f, 5.7f), new Vector2(13f, 6f), BridgeColor, bridge);
-            Box("BridgeRight", new Vector2(14.5f, 5.7f), new Vector2(19.5f, 6f), BridgeColor, bridge);
-            Box("EndLedge", new Vector2(19.5f, -1f), new Vector2(22f, 6f), Ground, room2);
-            Kill("PitKillZone", new Vector2(8f, -4f), new Vector2(19.5f, -3f), room2);
-            // Ground line 0: standing on the bridge (centre 6.5) = time 6.5, which leaves 0.5 s of margin.
-            RoomZone zone2 = Zone("Zone2", new Vector2(3.2f, -4f), new Vector2(23.8f, 14f), groundY: 0f, maxTime: 10f,
-                respawn: new Vector2(5.5f, 7.2f), parent: room2);
-            TimeToggle toggle = bridge.gameObject.AddComponent<TimeToggle>();
-            Set(toggle, "timeMin", 6f);
-            Set(toggle, "timeMax", 999f);
-            Set(toggle, "room", zone2);
-
-            // ---------- Room 3: The Rock Shaft ----------
-            // Left column (x 24..26.5) is safe up to the 4.4 m ledge. The rock falls down the right column
-            // (x 26.6..29) between time 4.6 and 5.8. Jump up from the left ledge: the rock drops past while you
-            // rise, then drift right onto the ledges above it. Fall back below 5.8 m and it flies back up at you.
-            Transform room3 = Group("Room3_Shaft", level);
-            Box("Floor", new Vector2(22f, -1f), new Vector2(29f, 0f), Ground, room3);
-            Box("LeftWall", new Vector2(23f, 1.8f), new Vector2(24f, 18f), Ground, room3);
-            Box("RightWall", new Vector2(29f, -1f), new Vector2(32f, 10f), Ground, room3);
-            Box("UpperRightWall", new Vector2(32f, 10f), new Vector2(33f, 18f), Ground, room3);
-            Box("Ceiling", new Vector2(23f, 17f), new Vector2(33f, 18f), Ground, room3);
-            Box("Ledge1", new Vector2(27f, 1.1f), new Vector2(29f, 1.4f), Ground, room3);
-            Box("Ledge2", new Vector2(24.5f, 2.6f), new Vector2(26f, 2.9f), Ground, room3);
-            Box("SafeLedge", new Vector2(24f, 4.1f), new Vector2(26.4f, 4.4f), Ground, room3);
-            Box("Ledge4", new Vector2(26.6f, 5.6f), new Vector2(28f, 5.9f), Ground, room3);
-            Box("Ledge5", new Vector2(27.5f, 7f), new Vector2(29f, 7.3f), Ground, room3);
-            Box("Ledge6", new Vector2(26.6f, 8.4f), new Vector2(27.8f, 8.7f), Ground, room3);
-            RoomZone zone3 = Zone("Zone3", new Vector2(23.8f, -1f), new Vector2(33f, 18f), groundY: 0.5f, maxTime: 10f,
-                respawn: new Vector2(25f, 1f), parent: room3);
-
-            GameObject rock = Box("Rock", new Vector2(26.65f, 12f), new Vector2(28.95f, 13f), RockColor, room3);
-            rock.GetComponent<BoxCollider2D>().isTrigger = true;
-            rock.AddComponent<Hazard>();
-            AddMover(rock, new Vector2(27.8f, 12.5f), new Vector2(27.8f, 0.5f), 4.6f, 5.8f, maxSpeed: 0f,
-                deadZone: 0f, room: zone3);
-
-            GameObject exit = Box("Exit", new Vector2(30f, 10f), new Vector2(31f, 11.5f), ExitColor, room3);
-            exit.GetComponent<BoxCollider2D>().isTrigger = true;
-            ExitGoal exitGoal = exit.AddComponent<ExitGoal>();
-
-            Kill("OutOfBounds", new Vector2(-20f, -12f), new Vector2(50f, -10f), level);
-
-            // ---------- Player, clock, camera, HUD ----------
-            GameObject player = CreatePlayer(new Vector2(-2f, 0.6f));
-            GameObject clockGo = new GameObject("WorldClock");
-            WorldClock clock = clockGo.AddComponent<WorldClock>();
+            GameObject player = CreatePlayer(new Vector2(-4f, 0.6f));
+            WorldClock clock = new GameObject("WorldClock").AddComponent<WorldClock>();
             Set(clock, "player", player.GetComponent<Rigidbody2D>());
             Set(clock, "startingRoom", zone1);
 
@@ -128,6 +78,123 @@ namespace HeightIsTime.EditorTools
             Debug.Log("[LevelScaffolder] Built " + ScenePath);
         }
 
+        // ---------- Room 1: Sinking Walls ----------
+        // Walls taller than a jump. Each one sinks by exactly as much as you rise, so jumping makes it duck under
+        // you. The red crusher does the opposite: it drops when you jump, so walk under it without jumping.
+        static RoomZone BuildRoom1(Transform level)
+        {
+            Transform room = Group("Room1_SinkingWalls", level);
+            Box("Floor", new Vector2(-7f, -6f), new Vector2(15f, 0f), Ground, room);
+            Box("LeftWall", new Vector2(-8f, -6f), new Vector2(-7f, 7f), Ground, room);
+            Box("Ceiling", new Vector2(-8f, 6f), new Vector2(15f, 7f), Ground, room);
+            RoomZone zone = Zone("Zone1", new Vector2(-7f, -6f), new Vector2(15f, 7f), maxTime: 4f,
+                respawn: new Vector2(-4f, 1f), parent: room);
+
+            SinkingWall("Wall1", 2f, 2.6f, zone, room);
+            SinkingWall("Wall2", 7f, 3.2f, zone, room);
+
+            // Crusher hangs from the ceiling with a 1.3 m gap below it: enough to walk under, not to jump under.
+            GameObject crusher = Box("Crusher", new Vector2(11.25f, 1.3f), new Vector2(12.75f, 6f), DangerColor,
+                room, SinkOrder);
+            crusher.GetComponent<BoxCollider2D>().isTrigger = true;
+            crusher.AddComponent<Hazard>();
+            Vector2 top = crusher.transform.position;
+            AddMover(crusher, top, top + Vector2.down * 4f, 0f, 4f, zone);
+
+            Ruler(zone, room, -7f, 15f);
+            Clock(new Vector2(4.5f, 3.5f), 2.2f, zone, room);
+            return zone;
+        }
+
+        static void SinkingWall(string name, float x, float height, RoomZone zone, Transform room)
+        {
+            GameObject wall = Box(name, new Vector2(x - 0.3f, 0f), new Vector2(x + 0.3f, height), WallColor, room,
+                SinkOrder);
+            Vector2 top = wall.transform.position;
+            AddMover(wall, top, top + Vector2.down * 4f, 0f, 4f, zone);
+        }
+
+        // ---------- Room 2: Growing Bridge ----------
+        // A staircase of 1 m steps. Each step you climb adds one bridge piece over the pit (piece i needs time
+        // i - 0.5), so by the top step (time 6) the bridge is complete. Fall in and it vanishes.
+        static void BuildRoom2(Transform level)
+        {
+            Transform room = Group("Room2_GrowingBridge", level);
+            for (int step = 1; step <= 6; step++)
+            {
+                float right = step == 6 ? 23f : 15f + step;
+                Box("Step" + step, new Vector2(15f + step - 1, -6f), new Vector2(right, step), Ground, room);
+            }
+            Box("EndLedge", new Vector2(35f, -6f), new Vector2(38f, 6f), Ground, room);
+            Kill("PitKillZone", new Vector2(23f, -4f), new Vector2(35f, -3f), room);
+            RoomZone zone = Zone("Zone2", new Vector2(15f, -6f), new Vector2(39.5f, 12f), maxTime: 8f,
+                respawn: new Vector2(15.5f, 1.7f), parent: room);
+
+            Transform bridge = Group("GrowingBridge", room);
+            for (int piece = 1; piece <= 6; piece++)
+            {
+                float left = 23f + (piece - 1) * 2f;
+                GameObject part = Box("Piece" + piece, new Vector2(left, 5.7f), new Vector2(left + 2f, 6f),
+                    BridgeColor, bridge);
+                TimeToggle toggle = part.AddComponent<TimeToggle>();
+                Set(toggle, "timeMin", piece - 0.5f);
+                Set(toggle, "timeMax", 999f);
+                Set(toggle, "room", zone);
+            }
+
+            Ruler(zone, room, 15f, 39.5f);
+            Clock(new Vector2(29f, 9.5f), 2.2f, zone, room);
+        }
+
+        // ---------- Room 3: Mirror Rock ----------
+        // The rock mirrors you: climb 1 m and it drops 1 m (rock centre = 10.5 - time), so you would meet at 5 m.
+        // The main shaft (right) has the obvious ledges and is a trap between 3 and 7 m. The side passage (left)
+        // is walled off from the rock between 3 and 7 m, so climb that while the rock passes, then cross over.
+        static ExitGoal BuildRoom3(Transform level)
+        {
+            Transform room = Group("Room3_MirrorRock", level);
+            Box("Floor", new Vector2(38f, -6f), new Vector2(49f, 0f), Ground, room);
+            Box("LeftWall", new Vector2(39f, 1.8f), new Vector2(40f, 14f), Ground, room);
+            Box("RightWall", new Vector2(46f, -6f), new Vector2(49f, 9.8f), Ground, room);
+            Box("UpperRightWall", new Vector2(49f, 9.8f), new Vector2(50f, 14f), Ground, room);
+            Box("Ceiling", new Vector2(39f, 13f), new Vector2(50f, 14f), Ground, room);
+            Box("Divider", new Vector2(42.8f, 3f), new Vector2(43.2f, 7f), Ground, room);
+
+            // Side passage (safe).
+            Ledge("Side1", 40f, 41.2f, 1.4f, room);
+            Ledge("Side2", 41.6f, 42.8f, 2.8f, room);
+            Ledge("Side3", 40f, 41.2f, 4.2f, room);
+            Ledge("Side4", 41.6f, 42.8f, 5.6f, room);
+            Ledge("Side5", 40f, 41.2f, 7.0f, room);
+            // Main shaft (trap between 3 and 7 m).
+            Ledge("Main1", 44.5f, 46f, 1.4f, room);
+            Ledge("Main2", 43.2f, 44.6f, 2.8f, room);
+            Ledge("Main3", 44.6f, 46f, 4.2f, room);
+            Ledge("Main4", 43.2f, 44.6f, 5.6f, room);
+            // Above the divider, back in the main shaft.
+            Ledge("Upper", 43.2f, 44.8f, 8.4f, room);
+
+            RoomZone zone = Zone("Zone3", new Vector2(39.5f, -6f), new Vector2(50f, 14f), maxTime: 10f,
+                respawn: new Vector2(42.2f, 1f), parent: room);
+
+            GameObject rock = Box("Rock", new Vector2(43.3f, 10f), new Vector2(45.9f, 11f), DangerColor, room,
+                RockOrder);
+            rock.GetComponent<BoxCollider2D>().isTrigger = true;
+            rock.AddComponent<Hazard>();
+            AddMover(rock, new Vector2(44.6f, 10.5f), new Vector2(44.6f, 0.5f), 0f, 10f, zone);
+            // Ghost: where the rock ends up at time 10.
+            Ghost("RockGhost", new Vector2(43.3f, 0f), new Vector2(45.9f, 1f), DangerColor, room);
+
+            GameObject exit = Box("Exit", new Vector2(47f, 9.8f), new Vector2(48f, 11.3f), ExitColor, room);
+            exit.GetComponent<BoxCollider2D>().isTrigger = true;
+
+            Ruler(zone, room, 39.5f, 50f);
+            Clock(new Vector2(53f, 7f), 2.5f, zone, room);
+            return exit.AddComponent<ExitGoal>();
+        }
+
+        // ---------- Player, camera, HUD ----------
+
         static GameObject CreatePlayer(Vector2 position)
         {
             GameObject player = new GameObject("Player") { tag = "Player" };
@@ -136,7 +203,7 @@ namespace HeightIsTime.EditorTools
             SpriteRenderer sprite = player.AddComponent<SpriteRenderer>();
             sprite.sprite = square;
             sprite.sharedMaterial = material;
-            sprite.sortingOrder = 10;
+            sprite.sortingOrder = PlayerOrder;
 
             Rigidbody2D body = player.AddComponent<Rigidbody2D>();
             body.gravityScale = 3f;
@@ -204,6 +271,46 @@ namespace HeightIsTime.EditorTools
             Set(exitGoal, "winPanel", win.gameObject);
         }
 
+        // ---------- time visuals ----------
+
+        // One line per second at the feet height for that second, across the room.
+        static void Ruler(RoomZone zone, Transform room, float xMin, float xMax)
+        {
+            Transform rulerRoot = Group("TimeRuler", room);
+            var lines = new List<Object>();
+            for (int second = 0; second <= Mathf.FloorToInt(zone.MaxTime); second++)
+            {
+                float y = GroundY - 0.5f + second;
+                GameObject line = Box("Line" + second, new Vector2(xMin, y - 0.02f), new Vector2(xMax, y + 0.02f),
+                    new Color(1f, 1f, 1f, 0.05f), rulerRoot, RulerOrder, collider: false);
+                lines.Add(line.GetComponent<SpriteRenderer>());
+            }
+            TimeRuler ruler = rulerRoot.gameObject.AddComponent<TimeRuler>();
+            Set(ruler, "lines", lines.ToArray());
+            Set(ruler, "room", zone);
+        }
+
+        // A diamond clock face with a hand that turns once per 10 s of world time.
+        static void Clock(Vector2 centre, float radius, RoomZone zone, Transform room)
+        {
+            GameObject face = Box("ClockFace", centre - Vector2.one * radius * 0.7f, centre + Vector2.one * radius * 0.7f,
+                ClockColor, room, ClockOrder, collider: false);
+            face.transform.rotation = Quaternion.Euler(0f, 0f, 45f);
+
+            Transform pivot = Group("ClockHand", room);
+            pivot.position = centre;
+            Box("Hand", centre + new Vector2(-0.08f, 0f), centre + new Vector2(0.08f, radius * 0.9f), HandColor, pivot,
+                ClockOrder + 1, collider: false);
+            ClockHand hand = pivot.gameObject.AddComponent<ClockHand>();
+            Set(hand, "room", zone);
+        }
+
+        static void Ghost(string name, Vector2 min, Vector2 max, Color color, Transform parent)
+        {
+            color.a = 0.12f;
+            Box(name, min, max, color, parent, RulerOrder + 1, collider: false);
+        }
+
         // ---------- helpers ----------
 
         static void CreateArtAssets()
@@ -247,7 +354,8 @@ namespace HeightIsTime.EditorTools
             return group;
         }
 
-        static GameObject Box(string name, Vector2 min, Vector2 max, Color color, Transform parent)
+        static GameObject Box(string name, Vector2 min, Vector2 max, Color color, Transform parent,
+            int sortingOrder = 0, bool collider = true)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -257,8 +365,14 @@ namespace HeightIsTime.EditorTools
             sprite.sprite = square;
             sprite.sharedMaterial = material;
             sprite.color = color;
-            go.AddComponent<BoxCollider2D>();
+            sprite.sortingOrder = sortingOrder;
+            if (collider) go.AddComponent<BoxCollider2D>();
             return go;
+        }
+
+        static void Ledge(string name, float xMin, float xMax, float top, Transform parent)
+        {
+            Box(name, new Vector2(xMin, top - 0.3f), new Vector2(xMax, top), Ground, parent);
         }
 
         static void Kill(string name, Vector2 min, Vector2 max, Transform parent)
@@ -268,8 +382,7 @@ namespace HeightIsTime.EditorTools
             go.AddComponent<Hazard>();
         }
 
-        static RoomZone Zone(string name, Vector2 min, Vector2 max, float groundY, float maxTime, Vector2 respawn,
-            Transform parent)
+        static RoomZone Zone(string name, Vector2 min, Vector2 max, float maxTime, Vector2 respawn, Transform parent)
         {
             GameObject go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -283,14 +396,14 @@ namespace HeightIsTime.EditorTools
             spawn.SetParent(go.transform, false);
             spawn.position = respawn;
 
-            Set(zone, "groundY", groundY);
+            Set(zone, "groundY", GroundY);
             Set(zone, "maxTime", maxTime);
             Set(zone, "respawnPoint", spawn);
             return zone;
         }
 
-        static TimeMover AddMover(GameObject go, Vector2 a, Vector2 b, float tStart, float tEnd, float maxSpeed,
-            float deadZone, RoomZone room)
+        // Time objects snap straight to their target (no speed cap): the world is a pure function of your height.
+        static void AddMover(GameObject go, Vector2 a, Vector2 b, float tStart, float tEnd, RoomZone room)
         {
             Rigidbody2D body = go.AddComponent<Rigidbody2D>();
             body.bodyType = RigidbodyType2D.Kinematic;
@@ -300,10 +413,7 @@ namespace HeightIsTime.EditorTools
             Set(mover, "pointB", b);
             Set(mover, "timeStart", tStart);
             Set(mover, "timeEnd", tEnd);
-            Set(mover, "maxSpeed", maxSpeed);
-            Set(mover, "deadZone", deadZone);
             Set(mover, "room", room);
-            return mover;
         }
 
         static RectTransform UiRect(string name, Transform parent, Color color)
@@ -328,6 +438,11 @@ namespace HeightIsTime.EditorTools
                 case float f: property.floatValue = f; break;
                 case Vector2 v: property.vector2Value = v; break;
                 case Object o: property.objectReferenceValue = o; break;
+                case Object[] array:
+                    property.arraySize = array.Length;
+                    for (int i = 0; i < array.Length; i++)
+                        property.GetArrayElementAtIndex(i).objectReferenceValue = array[i];
+                    break;
                 default: Debug.LogError($"[LevelScaffolder] Unsupported value for '{field}'"); return;
             }
             so.ApplyModifiedPropertiesWithoutUndo();

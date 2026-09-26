@@ -12,7 +12,7 @@ namespace HeightIsTime
         [SerializeField] float timeMax = 999f;
         [Tooltip("Seconds of tolerance once solid, so it does not flicker at the edge.")]
         [SerializeField] float hysteresis = 0.2f;
-        [Range(0f, 1f)] [SerializeField] float ghostAlpha = 0.2f;
+        [Range(0f, 1f)] [SerializeField] float ghostAlpha = 0.35f;
 
         Collider2D[] colliders;
         SpriteRenderer[] sprites;

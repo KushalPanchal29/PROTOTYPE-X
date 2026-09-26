@@ -12,6 +12,9 @@ namespace HeightIsTime
     {
         Rigidbody2D body;
 
+        /// <summary>Raised after every respawn (deaths and R presses).</summary>
+        public event System.Action Respawned;
+
         void Awake()
         {
             body = GetComponent<Rigidbody2D>();
@@ -31,6 +34,7 @@ namespace HeightIsTime
             body.linearVelocity = Vector2.zero;
             body.position = spawn;
             transform.position = spawn;
+            Respawned?.Invoke();
         }
     }
 }

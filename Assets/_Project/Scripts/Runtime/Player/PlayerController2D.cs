@@ -25,6 +25,7 @@ namespace HeightIsTime
         float lastGroundedTime = float.NegativeInfinity;
         float lastJumpPressedTime = float.NegativeInfinity;
         bool jumpCutRequested;
+        float moveInput;
 
         void Awake()
         {
@@ -49,8 +50,10 @@ namespace HeightIsTime
             jumpAction.Disable();
         }
 
+        // Input is read every frame and used in the next physics step.
         void Update()
         {
+            moveInput = moveAction.ReadValue<Vector2>().x;
             if (jumpAction.WasPressedThisFrame()) lastJumpPressedTime = Time.time;
             if (jumpAction.WasReleasedThisFrame()) jumpCutRequested = true;
         }
@@ -60,7 +63,7 @@ namespace HeightIsTime
             if (body.IsTouching(groundFilter)) lastGroundedTime = Time.time;
 
             Vector2 velocity = body.linearVelocity;
-            velocity.x = moveAction.ReadValue<Vector2>().x * moveSpeed;
+            velocity.x = moveInput * moveSpeed;
 
             bool jumpBuffered = Time.time - lastJumpPressedTime <= jumpBufferTime;
             bool canJump = Time.time - lastGroundedTime <= coyoteTime;
