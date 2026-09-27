@@ -16,3 +16,7 @@
 *.user
 *.userprefs
 .DS_Store
+
+# Local-only notes and IDE files (not part of the game)
+/docs/
+*.slnx
