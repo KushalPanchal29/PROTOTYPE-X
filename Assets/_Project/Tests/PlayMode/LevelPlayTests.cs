@@ -134,7 +134,7 @@ namespace HeightIsTime.Tests
             float normal = 0f, fast = 0f;
             yield return MeasureFall(false, t => normal = t);
             yield return MeasureFall(true, t => fast = t);
-            Assert.Less(fast, normal * 0.85f, "holding Down falls noticeably faster");
+            Assert.Less(fast, normal * 0.5f, "holding Down dives at least twice as fast");
             Assert.AreEqual(0, deaths);
         }
 

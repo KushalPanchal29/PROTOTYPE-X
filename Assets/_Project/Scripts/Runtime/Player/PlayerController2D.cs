@@ -17,8 +17,8 @@ namespace HeightIsTime
         [SerializeField] float coyoteTime = 0.1f;
         [SerializeField] float jumpBufferTime = 0.12f;
         [Range(0f, 1f)] [SerializeField] float jumpCutMultiplier = 0.5f;
-        [Tooltip("Extra gravity while falling and holding Down. Falling faster also rewinds time faster.")]
-        [SerializeField] float fastFallMultiplier = 2f;
+        [Tooltip("Holding Down in the air dives at this speed. Falling faster also rewinds time faster.")]
+        [SerializeField] float fastFallSpeed = 20f;
 
         Rigidbody2D body;
         InputAction moveAction;
@@ -65,7 +65,8 @@ namespace HeightIsTime
 
         void FixedUpdate()
         {
-            if (body.IsTouching(groundFilter)) lastGroundedTime = Time.time;
+            bool grounded = body.IsTouching(groundFilter);
+            if (grounded) lastGroundedTime = Time.time;
 
             Vector2 velocity = body.linearVelocity;
             velocity.x = moveInput * moveSpeed;
@@ -86,8 +87,7 @@ namespace HeightIsTime
                 jumpCutRequested = false;
             }
 
-            if (fastFallHeld && velocity.y < 0f)
-                velocity.y += Physics2D.gravity.y * body.gravityScale * (fastFallMultiplier - 1f) * Time.fixedDeltaTime;
+            if (fastFallHeld && !grounded) velocity.y = Mathf.Min(velocity.y, -fastFallSpeed);
 
             body.linearVelocity = velocity;
         }
