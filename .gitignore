@@ -20,3 +20,5 @@
 # Local-only notes and IDE files (not part of the game)
 /docs/
 *.slnx
+/notes/
+*.local.md
