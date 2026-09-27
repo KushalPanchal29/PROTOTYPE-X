@@ -19,6 +19,9 @@ namespace HeightIsTime
         /// <summary>+1 while time moves forward, -1 while it rewinds, 0 when it holds still.</summary>
         public int Direction { get; private set; }
 
+        /// <summary>While frozen, time holds its value no matter how the player moves.</summary>
+        public bool IsFrozen { get; private set; }
+
         public RoomZone ActiveRoom { get; private set; }
         public Rigidbody2D Player => player;
 
@@ -36,12 +39,24 @@ namespace HeightIsTime
 
         void FixedUpdate()
         {
+            if (IsFrozen)
+            {
+                Direction = 0;
+                return;
+            }
             float previous = CurrentTime;
             CurrentTime = ComputeTime();
             float delta = CurrentTime - previous;
             Direction = Mathf.Abs(delta) < 0.001f ? 0 : (delta > 0f ? 1 : -1);
         }
 
+        /// <summary>Freezing keeps the current time; unfreezing snaps back to the player's height next step.</summary>
+        public void SetFrozen(bool frozen)
+        {
+            IsFrozen = frozen;
+        }
+
+        // A new room always starts from the player's height, even while frozen.
         public void EnterRoom(RoomZone room)
         {
             if (room == ActiveRoom) return;

@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.IO;
-using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -52,11 +51,30 @@ namespace HeightIsTime.Tests
             Release(keyboard.spaceKey);
         }
 
-        static Transform Find(string name) => GameObject.Find(name).transform;
-        static float Top(string name) => GameObject.Find(name).GetComponent<BoxCollider2D>().bounds.max.y;
-        static float Now => WorldClock.Instance.CurrentTime;
+        // Holds right and jumps each time the player reaches one of the given x positions.
+        IEnumerator RunRightJumpingAt(float timeout, params float[] jumpXs)
+        {
+            Press(keyboard.dKey);
+            int next = 0;
+            float end = Time.time + timeout;
+            while (Time.time < end)
+            {
+                if (next < jumpXs.Length && player.position.x >= jumpXs[next])
+                {
+                    next++;
+                    yield return Jump(0.35f);
+                }
+                yield return new WaitForFixedUpdate();
+            }
+            Release(keyboard.dKey);
+        }
 
-        // ---------- Room 1: Sinking Walls ----------
+        static float Top(string name) => GameObject.Find(name).GetComponent<BoxCollider2D>().bounds.max.y;
+        static bool Solid(string name) => GameObject.Find(name).GetComponent<BoxCollider2D>().enabled;
+        static WorldClock Clock => WorldClock.Instance;
+        bool Won => GameObject.Find("HUD").transform.Find("WinPanel").gameObject.activeSelf;
+
+        // ---------- Room 1: Sinking Wall ----------
 
         [UnityTest]
         public IEnumerator Room1_JumpingSinksTheWallAndCarriesYouOverIt()
@@ -66,134 +84,134 @@ namespace HeightIsTime.Tests
             Assert.Greater(Top("Wall1"), 2.5f, "wall starts taller than a jump");
 
             Press(keyboard.dKey);
-            while (player.position.x < -0.3f) yield return new WaitForFixedUpdate();
+            while (player.position.x < -0.6f) yield return new WaitForFixedUpdate();
             Press(keyboard.spaceKey);
             float lowestTop = float.MaxValue;
             bool shot = false;
             for (float t = 0f; t < 1.2f; t += Time.fixedDeltaTime)
             {
                 lowestTop = Mathf.Min(lowestTop, Top("Wall1"));
-                if (!shot && Now > 1.8f) { Screenshot("room1-wall-sinks-mid-jump"); shot = true; }
+                if (!shot && Clock.CurrentTime > 1.8f) { Screenshot("room1-wall-sinks-mid-jump"); shot = true; }
                 if (t > 0.45f) Release(keyboard.spaceKey);
                 yield return new WaitForFixedUpdate();
             }
             Release(keyboard.dKey);
 
             Assert.Less(lowestTop, 1f, "wall sank while the player was in the air");
-            Assert.Greater(player.position.x, 3f, "player got over wall 1");
+            Assert.Greater(player.position.x, 3f, "player got over the wall");
             Assert.AreEqual(0, deaths);
             yield return Wait(0.5f);
             Assert.Greater(Top("Wall1"), 2.5f, "wall rose back after landing");
         }
 
         [UnityTest]
-        public IEnumerator Room1_WalkingUnderTheCrusherIsSafe()
+        public IEnumerator Room1_WallCannotBeJumpedWhileFrozenAtGround()
         {
             yield return LoadLevel();
-            yield return Teleport(9.5f, 0.6f);
+            yield return Teleport(-1f, 0.6f);
+            Press(keyboard.leftShiftKey); // freeze at time 0: the wall stays full height
+            yield return RunRightJumpingAt(1.5f, -0.6f);
+            Release(keyboard.leftShiftKey);
+            Assert.Less(player.position.x, 1.7f, "blocked by the wall");
+        }
+
+        // ---------- Room 2: Future Bridge ----------
+
+        [UnityTest]
+        public IEnumerator Room2_BridgeOnlyExistsFromTime4()
+        {
+            yield return LoadLevel();
+            yield return Teleport(8.5f, 1.6f); // step 1
+            Assert.IsFalse(Solid("Deck"), "time 1: no bridge");
+            yield return Teleport(11.5f, 4.6f); // step 4
+            Assert.IsTrue(Solid("Deck"), "time 4: bridge");
+            Screenshot("room2-bridge-appears-from-the-stairs");
+        }
+
+        [UnityTest]
+        public IEnumerator Room2_DroppingWithoutFreezeLosesTheBridge()
+        {
+            yield return LoadLevel();
+            yield return Teleport(8.5f, 1.6f);
+            yield return Teleport(13f, 5.6f); // top step, time 5
             Press(keyboard.dKey);
-            yield return Wait(1.2f);
+            yield return Wait(2f);
             Release(keyboard.dKey);
-            Assert.Greater(player.position.x, 13.5f);
-            Assert.AreEqual(0, deaths);
+            Assert.GreaterOrEqual(deaths, 1, "fell through the vanished bridge");
         }
 
         [UnityTest]
-        public IEnumerator Room1_JumpingUnderTheCrusherKills()
+        public IEnumerator Room2_FreezingHighLetsYouRunAcrossTheLowBridge()
         {
             yield return LoadLevel();
-            yield return Teleport(12f, 0.6f);
-            yield return Jump();
-            yield return Wait(0.3f);
-            Assert.GreaterOrEqual(deaths, 1);
-        }
-
-        // ---------- Room 2: Growing Bridge ----------
-
-        [UnityTest]
-        public IEnumerator Room2_EachStepAddsOneBridgePiece()
-        {
-            yield return LoadLevel();
-            for (int step = 1; step <= 6; step++)
+            yield return Teleport(8.5f, 1.6f);
+            yield return Teleport(13f, 5.6f);
+            Press(keyboard.leftShiftKey);
+            yield return Wait(0.1f);
+            Assert.IsTrue(Clock.IsFrozen);
+            Press(keyboard.dKey);
+            bool shot = false;
+            float timeout = Time.time + 4f;
+            while (player.position.x < 23f && deaths == 0 && Time.time < timeout)
             {
-                float x = step == 6 ? 21f : 15f + step - 0.5f;
-                yield return Teleport(x, step + 0.6f);
-                yield return Wait(0.2f);
-                int solid = Enumerable.Range(1, 6)
-                    .Count(i => GameObject.Find("Piece" + i).GetComponent<BoxCollider2D>().enabled);
-                Assert.AreEqual(step, solid, $"on step {step} (time {Now:0.0})");
-                if (step == 3) Screenshot("room2-bridge-half-built");
+                if (!shot && player.position.x > 17f) { Screenshot("room2-frozen-running-on-bridge"); shot = true; }
+                yield return new WaitForFixedUpdate();
             }
-            Screenshot("room2-bridge-complete");
-        }
-
-        [UnityTest]
-        public IEnumerator Room2_CompleteBridgeCanBeWalkedAcross()
-        {
-            yield return LoadLevel();
-            yield return Teleport(15.5f, 1.6f); // enter room 2
-            yield return Teleport(22f, 6.6f);
-            Press(keyboard.dKey);
-            yield return Wait(2.5f);
             Release(keyboard.dKey);
-            Assert.Greater(player.position.x, 35f, "reached the end ledge");
+            Release(keyboard.leftShiftKey);
             Assert.AreEqual(0, deaths);
+            Assert.Greater(player.position.x, 22.5f, "reached the far floor");
+            yield return Wait(0.2f);
+            Assert.IsFalse(Clock.IsFrozen);
+            Assert.IsFalse(Solid("Deck"), "bridge gone again after unfreezing at ground level");
         }
 
-        // ---------- Room 3: Mirror Rock ----------
+        // ---------- Room 3: Past Gate ----------
 
         [UnityTest]
-        public IEnumerator Room3_RockMirrorsYourHeight()
+        public IEnumerator Room3_GateBlocksYouOnTheLedgeWithoutFreeze()
         {
             yield return LoadLevel();
-            yield return Teleport(42.2f, 1f); // enter room 3
-            float[] ledges = { 1.4f, 4.2f, 7.0f };
-            float[] xs = { 40.6f, 40.6f, 40.6f };
-            for (int i = 0; i < ledges.Length; i++)
-            {
-                yield return Teleport(xs[i], ledges[i] + 0.6f);
-                yield return Wait(0.2f);
-                Assert.AreEqual(10.5f - ledges[i], Find("Rock").position.y, 0.15f, $"on ledge {ledges[i]}");
-                if (i == 1) Screenshot("room3-rock-mirrors-you");
-            }
-            Assert.AreEqual(0, deaths);
-        }
-
-        [UnityTest]
-        public IEnumerator Room3_SidePassageIsSafeWhileTheRockPasses()
-        {
-            yield return LoadLevel();
-            yield return Teleport(42.2f, 1f);
-            yield return Teleport(42.2f, 6.2f); // Side4, time 5.6: rock is right beside you
-            yield return Wait(1f);
-            Screenshot("room3-side-passage-rock-beside-you");
-            Assert.AreEqual(0, deaths);
-        }
-
-        [UnityTest]
-        public IEnumerator Room3_JumpingInTheMainShaftAtMeetingHeightKills()
-        {
-            yield return LoadLevel();
-            yield return Teleport(42.2f, 1f);
-            yield return Teleport(45.3f, 4.8f); // Main3, time 4.2
-            Assert.AreEqual(0, deaths, "standing on Main3 is still safe");
-            yield return Jump();
-            yield return Wait(0.3f);
-            Assert.GreaterOrEqual(deaths, 1);
-        }
-
-        [UnityTest]
-        public IEnumerator Room3_JumpFromUpperLedgeReachesTheExit()
-        {
-            yield return LoadLevel();
-            yield return Teleport(42.2f, 1f);
-            yield return Teleport(44.2f, 9.0f); // Upper ledge, time 8.4
+            yield return Teleport(32f, 1f);
+            yield return Teleport(39f, 3.6f); // on the ledge, time 3
             Press(keyboard.dKey);
-            yield return Jump();
-            yield return Wait(1f);
+            yield return Wait(1.5f);
             Release(keyboard.dKey);
-            Assert.IsTrue(GameObject.Find("HUD").transform.Find("WinPanel").gameObject.activeSelf, "win panel");
+            Assert.IsTrue(Solid("Gate"));
+            Assert.Less(player.position.x, 41.7f, "blocked by the gate");
+            Screenshot("room3-gate-closed-up-high");
+        }
+
+        [UnityTest]
+        public IEnumerator Room3_FreezeLowThenClimbReachesTheExit()
+        {
+            yield return LoadLevel();
+            yield return Teleport(32f, 1f);
+            yield return Teleport(33f, 0.6f);
+            Press(keyboard.leftShiftKey); // freeze at time 0: gate open
+            yield return RunRightJumpingAt(3.5f, 35.2f, 37.2f);
+            Release(keyboard.leftShiftKey);
             Assert.AreEqual(0, deaths);
+            Assert.IsTrue(Won, "reached the exit through the open gate");
+        }
+
+        // ---------- Freeze meter ----------
+
+        [UnityTest]
+        public IEnumerator Freeze_RunsOutAndNeedsARelease()
+        {
+            yield return LoadLevel();
+            TimeFreeze freeze = player.GetComponent<TimeFreeze>();
+            Press(keyboard.leftShiftKey);
+            yield return Wait(0.5f);
+            Assert.IsTrue(Clock.IsFrozen);
+            yield return Wait(4f);
+            Assert.IsFalse(Clock.IsFrozen, "meter ran out");
+            yield return Wait(1f);
+            Assert.IsFalse(Clock.IsFrozen, "still held: stays unfrozen until released");
+            Release(keyboard.leftShiftKey);
+            yield return Wait(1f);
+            Assert.Greater(freeze.Meter01, 0.1f, "meter refills");
         }
 
         // ---------- screenshots ----------

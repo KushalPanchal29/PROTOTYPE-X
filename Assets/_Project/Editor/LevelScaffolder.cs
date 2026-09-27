@@ -30,13 +30,13 @@ namespace HeightIsTime.EditorTools
         static readonly Color Ground = new Color(0.45f, 0.45f, 0.48f);
         static readonly Color WallColor = new Color(0.30f, 0.80f, 0.90f);
         static readonly Color BridgeColor = new Color(0.95f, 0.60f, 0.20f);
-        static readonly Color DangerColor = new Color(0.90f, 0.25f, 0.25f);
+        static readonly Color GateColor = new Color(0.70f, 0.45f, 0.95f);
         static readonly Color ExitColor = new Color(0.30f, 0.85f, 0.40f);
         static readonly Color ClockColor = new Color(1f, 1f, 1f, 0.08f);
         static readonly Color HandColor = new Color(1f, 0.75f, 0.3f, 0.5f);
 
-        // Sorting: time lines and clocks behind everything, moving walls behind the floor so they sink "into" it.
-        const int RulerOrder = -20, ClockOrder = -15, SinkOrder = -1, RockOrder = 1, PlayerOrder = 10;
+        // Sorting: time lines and clocks behind everything, the moving wall behind the floor so it sinks "into" it.
+        const int RulerOrder = -20, ClockOrder = -15, SinkOrder = -1, PlayerOrder = 10;
 
         static Sprite square;
         static Material material;
@@ -62,7 +62,7 @@ namespace HeightIsTime.EditorTools
             RoomZone zone1 = BuildRoom1(level);
             BuildRoom2(level);
             ExitGoal exitGoal = BuildRoom3(level);
-            Kill("OutOfBounds", new Vector2(-30f, -14f), new Vector2(70f, -12f), level);
+            Kill("OutOfBounds", new Vector2(-30f, -14f), new Vector2(60f, -12f), level);
 
             GameObject player = CreatePlayer(new Vector2(-4f, 0.6f));
             WorldClock clock = new GameObject("WorldClock").AddComponent<WorldClock>();
@@ -70,7 +70,7 @@ namespace HeightIsTime.EditorTools
             Set(clock, "startingRoom", zone1);
 
             Camera camera = CreateCamera(player.transform);
-            CreateHud(camera, exitGoal);
+            CreateHud(camera, exitGoal, player);
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
@@ -78,118 +78,76 @@ namespace HeightIsTime.EditorTools
             Debug.Log("[LevelScaffolder] Built " + ScenePath);
         }
 
-        // ---------- Room 1: Sinking Walls ----------
-        // Walls taller than a jump. Each one sinks by exactly as much as you rise, so jumping makes it duck under
-        // you. The red crusher does the opposite: it drops when you jump, so walk under it without jumping.
+        // ---------- Room 1: Sinking Wall (teaches: jumping moves time) ----------
+        // A wall taller than a jump. It sinks by exactly as much as you rise, so jumping makes it duck under you.
         static RoomZone BuildRoom1(Transform level)
         {
-            Transform room = Group("Room1_SinkingWalls", level);
-            Box("Floor", new Vector2(-7f, -6f), new Vector2(15f, 0f), Ground, room);
-            Box("LeftWall", new Vector2(-8f, -6f), new Vector2(-7f, 7f), Ground, room);
-            Box("Ceiling", new Vector2(-8f, 6f), new Vector2(15f, 7f), Ground, room);
-            RoomZone zone = Zone("Zone1", new Vector2(-7f, -6f), new Vector2(15f, 7f), maxTime: 4f,
+            Transform room = Group("Room1_SinkingWall", level);
+            Box("Floor", new Vector2(-7f, -6f), new Vector2(8f, 0f), Ground, room);
+            Box("LeftWall", new Vector2(-8f, -6f), new Vector2(-7f, 8f), Ground, room);
+            RoomZone zone = Zone("Zone1", new Vector2(-7f, -6f), new Vector2(8f, 10f), maxTime: 4f,
                 respawn: new Vector2(-4f, 1f), parent: room);
 
-            SinkingWall("Wall1", 2f, 2.6f, zone, room);
-            SinkingWall("Wall2", 7f, 3.2f, zone, room);
+            GameObject wall = Box("Wall1", new Vector2(1.7f, 0f), new Vector2(2.3f, 2.6f), WallColor, room, SinkOrder);
+            Vector2 top = wall.transform.position;
+            AddMover(wall, top, top + Vector2.down * 4f, 0f, 4f, zone);
 
-            // Crusher hangs from the ceiling with a 1.3 m gap below it: enough to walk under, not to jump under.
-            GameObject crusher = Box("Crusher", new Vector2(11.25f, 1.3f), new Vector2(12.75f, 6f), DangerColor,
-                room, SinkOrder);
-            crusher.GetComponent<BoxCollider2D>().isTrigger = true;
-            crusher.AddComponent<Hazard>();
-            Vector2 top = crusher.transform.position;
-            AddMover(crusher, top, top + Vector2.down * 4f, 0f, 4f, zone);
-
-            Ruler(zone, room, -7f, 15f);
-            Clock(new Vector2(4.5f, 3.5f), 2.2f, zone, room);
+            Ruler(zone, room, -7f, 8f);
+            Clock(new Vector2(-1f, 5f), 2f, zone, room);
             return zone;
         }
 
-        static void SinkingWall(string name, float x, float height, RoomZone zone, Transform room)
-        {
-            GameObject wall = Box(name, new Vector2(x - 0.3f, 0f), new Vector2(x + 0.3f, height), WallColor, room,
-                SinkOrder);
-            Vector2 top = wall.transform.position;
-            AddMover(wall, top, top + Vector2.down * 4f, 0f, 4f, zone);
-        }
-
-        // ---------- Room 2: Growing Bridge ----------
-        // A staircase of 1 m steps. Each step you climb adds one bridge piece over the pit (piece i needs time
-        // i - 0.5), so by the top step (time 6) the bridge is complete. Fall in and it vanishes.
+        // ---------- Room 2: Future Bridge (teaches: freeze HIGH, then go low) ----------
+        // The bridge lies at ground level over a pit but only exists from time 4. Climb the stairs (time 5),
+        // hold Shift to freeze, drop onto the bridge and run across. Without freezing it vanishes as you drop.
         static void BuildRoom2(Transform level)
         {
-            Transform room = Group("Room2_GrowingBridge", level);
-            for (int step = 1; step <= 6; step++)
+            Transform room = Group("Room2_FutureBridge", level);
+            for (int step = 1; step <= 5; step++)
             {
-                float right = step == 6 ? 23f : 15f + step;
-                Box("Step" + step, new Vector2(15f + step - 1, -6f), new Vector2(right, step), Ground, room);
+                float right = step == 5 ? 14f : 8f + step;
+                Box("Step" + step, new Vector2(7f + step, -6f), new Vector2(right, step), Ground, room);
             }
-            Box("EndLedge", new Vector2(35f, -6f), new Vector2(38f, 6f), Ground, room);
-            Kill("PitKillZone", new Vector2(23f, -4f), new Vector2(35f, -3f), room);
-            RoomZone zone = Zone("Zone2", new Vector2(15f, -6f), new Vector2(39.5f, 12f), maxTime: 8f,
-                respawn: new Vector2(15.5f, 1.7f), parent: room);
+            Box("FarFloor", new Vector2(22f, -6f), new Vector2(30f, 0f), Ground, room);
+            Kill("PitKillZone", new Vector2(14f, -4f), new Vector2(22f, -3f), room);
+            RoomZone zone = Zone("Zone2", new Vector2(8f, -6f), new Vector2(30f, 10f), maxTime: 6f,
+                respawn: new Vector2(8.5f, 1.6f), parent: room);
 
-            Transform bridge = Group("GrowingBridge", room);
-            for (int piece = 1; piece <= 6; piece++)
-            {
-                float left = 23f + (piece - 1) * 2f;
-                GameObject part = Box("Piece" + piece, new Vector2(left, 5.7f), new Vector2(left + 2f, 6f),
-                    BridgeColor, bridge);
-                TimeToggle toggle = part.AddComponent<TimeToggle>();
-                Set(toggle, "timeMin", piece - 0.5f);
-                Set(toggle, "timeMax", 999f);
-                Set(toggle, "room", zone);
-            }
+            Transform bridge = Group("FutureBridge", room);
+            Box("Deck", new Vector2(14f, -0.3f), new Vector2(22f, 0f), BridgeColor, bridge);
+            TimeToggle toggle = bridge.gameObject.AddComponent<TimeToggle>();
+            Set(toggle, "timeMin", 4f);
+            Set(toggle, "timeMax", 999f);
+            Set(toggle, "room", zone);
 
-            Ruler(zone, room, 15f, 39.5f);
-            Clock(new Vector2(29f, 9.5f), 2.2f, zone, room);
+            Ruler(zone, room, 8f, 30f);
+            Clock(new Vector2(18f, 6.5f), 2f, zone, room);
         }
 
-        // ---------- Room 3: Mirror Rock ----------
-        // The rock mirrors you: climb 1 m and it drops 1 m (rock centre = 10.5 - time), so you would meet at 5 m.
-        // The main shaft (right) has the obvious ledges and is a trap between 3 and 7 m. The side passage (left)
-        // is walled off from the rock between 3 and 7 m, so climb that while the rock passes, then cross over.
+        // ---------- Room 3: Past Gate (teaches: freeze LOW, then go high) ----------
+        // The gate on the ledge is only open in the past (time below 2), and you cannot jump over it. Freeze on
+        // the floor at time 0, climb up while frozen and walk through to the exit.
         static ExitGoal BuildRoom3(Transform level)
         {
-            Transform room = Group("Room3_MirrorRock", level);
-            Box("Floor", new Vector2(38f, -6f), new Vector2(49f, 0f), Ground, room);
-            Box("LeftWall", new Vector2(39f, 1.8f), new Vector2(40f, 14f), Ground, room);
-            Box("RightWall", new Vector2(46f, -6f), new Vector2(49f, 9.8f), Ground, room);
-            Box("UpperRightWall", new Vector2(49f, 9.8f), new Vector2(50f, 14f), Ground, room);
-            Box("Ceiling", new Vector2(39f, 13f), new Vector2(50f, 14f), Ground, room);
-            Box("Divider", new Vector2(42.8f, 3f), new Vector2(43.2f, 7f), Ground, room);
+            Transform room = Group("Room3_PastGate", level);
+            Box("Floor", new Vector2(30f, -6f), new Vector2(48f, 0f), Ground, room);
+            Box("Step", new Vector2(36f, 0f), new Vector2(38f, 1.5f), Ground, room);
+            Box("Ledge", new Vector2(38f, 0f), new Vector2(48f, 3f), Ground, room);
+            Box("RightWall", new Vector2(48f, -6f), new Vector2(49f, 9f), Ground, room);
+            RoomZone zone = Zone("Zone3", new Vector2(30f, -6f), new Vector2(48f, 10f), maxTime: 6f,
+                respawn: new Vector2(32f, 1f), parent: room);
 
-            // Side passage (safe).
-            Ledge("Side1", 40f, 41.2f, 1.4f, room);
-            Ledge("Side2", 41.6f, 42.8f, 2.8f, room);
-            Ledge("Side3", 40f, 41.2f, 4.2f, room);
-            Ledge("Side4", 41.6f, 42.8f, 5.6f, room);
-            Ledge("Side5", 40f, 41.2f, 7.0f, room);
-            // Main shaft (trap between 3 and 7 m).
-            Ledge("Main1", 44.5f, 46f, 1.4f, room);
-            Ledge("Main2", 43.2f, 44.6f, 2.8f, room);
-            Ledge("Main3", 44.6f, 46f, 4.2f, room);
-            Ledge("Main4", 43.2f, 44.6f, 5.6f, room);
-            // Above the divider, back in the main shaft.
-            Ledge("Upper", 43.2f, 44.8f, 8.4f, room);
+            GameObject gate = Box("Gate", new Vector2(42f, 3f), new Vector2(42.6f, 6.5f), GateColor, room);
+            TimeToggle toggle = gate.AddComponent<TimeToggle>();
+            Set(toggle, "timeMin", 2f);
+            Set(toggle, "timeMax", 999f);
+            Set(toggle, "room", zone);
 
-            RoomZone zone = Zone("Zone3", new Vector2(39.5f, -6f), new Vector2(50f, 14f), maxTime: 10f,
-                respawn: new Vector2(42.2f, 1f), parent: room);
-
-            GameObject rock = Box("Rock", new Vector2(43.3f, 10f), new Vector2(45.9f, 11f), DangerColor, room,
-                RockOrder);
-            rock.GetComponent<BoxCollider2D>().isTrigger = true;
-            rock.AddComponent<Hazard>();
-            AddMover(rock, new Vector2(44.6f, 10.5f), new Vector2(44.6f, 0.5f), 0f, 10f, zone);
-            // Ghost: where the rock ends up at time 10.
-            Ghost("RockGhost", new Vector2(43.3f, 0f), new Vector2(45.9f, 1f), DangerColor, room);
-
-            GameObject exit = Box("Exit", new Vector2(47f, 9.8f), new Vector2(48f, 11.3f), ExitColor, room);
+            GameObject exit = Box("Exit", new Vector2(45f, 3f), new Vector2(46f, 4.5f), ExitColor, room);
             exit.GetComponent<BoxCollider2D>().isTrigger = true;
 
-            Ruler(zone, room, 39.5f, 50f);
-            Clock(new Vector2(53f, 7f), 2.5f, zone, room);
+            Ruler(zone, room, 30f, 48f);
+            Clock(new Vector2(40f, 8f), 2f, zone, room);
             return exit.AddComponent<ExitGoal>();
         }
 
@@ -218,6 +176,7 @@ namespace HeightIsTime.EditorTools
             Set(controller, "actions", AssetDatabase.LoadAssetAtPath<InputActionAsset>(InputActionsPath));
             Set(controller, "jumpHeight", 2f);
             player.AddComponent<PlayerRespawn>();
+            player.AddComponent<TimeFreeze>();
             return player;
         }
 
@@ -236,7 +195,7 @@ namespace HeightIsTime.EditorTools
             return camera;
         }
 
-        static void CreateHud(Camera camera, ExitGoal exitGoal)
+        static void CreateHud(Camera camera, ExitGoal exitGoal, GameObject player)
         {
             GameObject canvasGo = new GameObject("HUD");
             Canvas canvas = canvasGo.AddComponent<Canvas>();
@@ -256,8 +215,21 @@ namespace HeightIsTime.EditorTools
             fill.anchorMax = new Vector2(0f, 1f);
             fill.offsetMin = fill.offsetMax = Vector2.zero;
 
+            // Freeze meter: thin cyan bar under the time bar.
+            RectTransform meter = UiRect("FreezeMeter", canvasGo.transform, new Color(0f, 0f, 0f, 0.6f));
+            meter.anchorMin = meter.anchorMax = new Vector2(0.5f, 1f);
+            meter.pivot = new Vector2(0.5f, 1f);
+            meter.sizeDelta = new Vector2(300f, 12f);
+            meter.anchoredPosition = new Vector2(0f, -62f);
+            RectTransform meterFill = UiRect("Fill", meter, new Color(0.55f, 0.9f, 1f));
+            meterFill.anchorMin = Vector2.zero;
+            meterFill.anchorMax = Vector2.one;
+            meterFill.offsetMin = meterFill.offsetMax = Vector2.zero;
+
             TimeHud hud = canvasGo.AddComponent<TimeHud>();
             Set(hud, "fill", fill);
+            Set(hud, "freezeFill", meterFill);
+            Set(hud, "freeze", player.GetComponent<TimeFreeze>());
             Set(hud, "targetCamera", camera);
 
             // Win panel: shapes only (no fonts, per the no-external-assets rule).
@@ -303,12 +275,6 @@ namespace HeightIsTime.EditorTools
                 ClockOrder + 1, collider: false);
             ClockHand hand = pivot.gameObject.AddComponent<ClockHand>();
             Set(hand, "room", zone);
-        }
-
-        static void Ghost(string name, Vector2 min, Vector2 max, Color color, Transform parent)
-        {
-            color.a = 0.12f;
-            Box(name, min, max, color, parent, RulerOrder + 1, collider: false);
         }
 
         // ---------- helpers ----------
