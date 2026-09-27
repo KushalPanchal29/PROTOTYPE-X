@@ -115,6 +115,29 @@ namespace HeightIsTime.Tests
             Assert.Less(player.position.x, 1.7f, "blocked by the wall");
         }
 
+        // ---------- Fast fall ----------
+
+        IEnumerator MeasureFall(bool holdDown, Action<float> result)
+        {
+            yield return Teleport(-4f, 6f);
+            if (holdDown) Press(keyboard.sKey);
+            float start = Time.time;
+            while (player.position.y > 1f && Time.time - start < 3f) yield return new WaitForFixedUpdate();
+            if (holdDown) Release(keyboard.sKey);
+            result(Time.time - start);
+        }
+
+        [UnityTest]
+        public IEnumerator FastFall_HoldingDownFallsFaster()
+        {
+            yield return LoadLevel();
+            float normal = 0f, fast = 0f;
+            yield return MeasureFall(false, t => normal = t);
+            yield return MeasureFall(true, t => fast = t);
+            Assert.Less(fast, normal * 0.85f, "holding Down falls noticeably faster");
+            Assert.AreEqual(0, deaths);
+        }
+
         // ---------- Room 2: Future Bridge ----------
 
         [UnityTest]
