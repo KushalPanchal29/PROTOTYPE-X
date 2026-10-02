@@ -237,6 +237,34 @@ namespace HeightIsTime.Tests
             Assert.Greater(freeze.Meter01, 0.1f, "meter refills");
         }
 
+        [UnityTest]
+        public IEnumerator Freeze_PlayerFlashesWhenTheMeterIsLow()
+        {
+            bool Red(Color c) => c.r > 0.9f && c.g < 0.5f;
+            yield return LoadLevel();
+            SpriteRenderer sprite = player.GetComponent<SpriteRenderer>();
+            Press(keyboard.leftShiftKey);
+            bool flashedEarly = false;
+            float end = Time.time + 2f;
+            while (Time.time < end)
+            {
+                flashedEarly |= Red(sprite.color);
+                yield return null;
+            }
+            Assert.IsFalse(flashedEarly, "no red warning while the meter is still full");
+
+            yield return Wait(1.5f);
+            bool flashed = false;
+            end = Time.time + 0.4f;
+            while (Time.time < end)
+            {
+                flashed |= Red(sprite.color);
+                yield return null;
+            }
+            Assert.IsTrue(flashed, "flashes in the last second of the meter");
+            Release(keyboard.leftShiftKey);
+        }
+
         // ---------- screenshots ----------
 
         void Screenshot(string name)

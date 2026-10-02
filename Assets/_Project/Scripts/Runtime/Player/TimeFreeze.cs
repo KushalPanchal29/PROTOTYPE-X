@@ -14,6 +14,10 @@ namespace HeightIsTime
         [SerializeField] float capacity = 4f;
         [SerializeField] float refillPerSecond = 1f;
         [SerializeField] Color frozenTint = new Color(0.55f, 0.9f, 1f);
+        [Tooltip("When the meter drops below this fraction while frozen, the player flashes as a warning.")]
+        [Range(0f, 1f)] [SerializeField] float warningAt = 0.25f;
+        [SerializeField] Color warningTint = new Color(1f, 0.35f, 0.3f);
+        [SerializeField] float flashesPerSecond = 8f;
 
         InputAction freezeAction;
         SpriteRenderer sprite;
@@ -65,7 +69,10 @@ namespace HeightIsTime
                 Meter = Mathf.Min(capacity, Meter + refillPerSecond * Time.deltaTime);
             }
 
-            sprite.color = clock.IsFrozen ? frozenTint : normalColor;
+            Color color = clock.IsFrozen ? frozenTint : normalColor;
+            bool meterLow = clock.IsFrozen && Meter01 < warningAt;
+            if (meterLow && Mathf.Repeat(Time.time * flashesPerSecond, 1f) < 0.5f) color = warningTint;
+            sprite.color = color;
         }
 
         void OnRespawned()
