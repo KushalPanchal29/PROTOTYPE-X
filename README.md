@@ -4,9 +4,16 @@ A 2D puzzle platformer where your height is the clock.
 
 Climb to move the world forward in time, drop to rewind it. Hold Shift to freeze time, then carry that moment to a new height: make a future bridge appear over a pit, or keep a past gate open on a high ledge.
 
-**▶ Play in the browser:** https://height-is-time-team.github.io/PROTOTYPE-X/
-
 **Genre + twist:** Puzzle Platformer + Height-Controlled Time
+
+## Links
+
+| | |
+|---|---|
+| ▶ Play in the browser | https://height-is-time-team.github.io/PROTOTYPE-X/ |
+| 🎬 Gameplay video | https://drive.google.com/file/d/16KNa4Zn4r-bSbF6ZbvXZdAKrv1nZTWj4/view |
+| 📄 Descriptive document | https://drive.google.com/file/d/1GXOguFxxbd4Hje4v1To6dQBovzo-u_t0/view?usp=sharing |
+| 💻 Source code | https://github.com/height-is-time-team/PROTOTYPE-X |
 
 ## Controls
 
@@ -73,8 +80,10 @@ All visuals use Unity's built-in shapes; there are no external assets.
 
 ## Team
 
-- **Kushal** – web page controls and credits, deployment
-- **Vraj** – low-meter warning flash
-- **Viraj** – fast fall dive
+| Member | Contributions |
+|---|---|
+| Kushal Panchal ([@KushalPanchal29](https://github.com/KushalPanchal29)) | Web page controls and team credits, GitHub Pages hosting, repository setup, gameplay video |
+| Vraj Patel ([@VRAJSPATEL10](https://github.com/VRAJSPATEL10)) | Genre research, Twist & Mechanics Matrix, low-meter warning, descriptive document, pitch |
+| Viraj Vaghasia ([@virajvaghasia](https://github.com/virajvaghasia)) | Level design, level diagram, fast fall dive, core game integration, WebGL build, playtesting |
 
 Made for a paired prototype assignment.
