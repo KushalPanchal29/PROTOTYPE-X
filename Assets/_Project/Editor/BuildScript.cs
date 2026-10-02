@@ -52,9 +52,10 @@ namespace HeightIsTime.EditorTools
                 "<div id=\"unity-build-title\">Height Is Time</div>");
             const string controls =
                 "    <p style=\"font-family:sans-serif;text-align:center;color:#ccc\">" +
-                "<b>A / D</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>hold Shift</b> freeze time" +
+                "<b>A / D</b> move &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>S</b> fast fall" +
+                " &nbsp;·&nbsp; <b>hold Shift</b> freeze time" +
                 " &nbsp;·&nbsp; <b>R</b> respawn<br>Your height is the clock: climb to move time forward, " +
-                "fall to rewind it.</p>\n";
+                "fall to rewind it.<br><small>Made by Kushal, Vraj and Viraj</small></p>\n";
             int firstScript = html.IndexOf("    <script>", System.StringComparison.Ordinal);
             if (firstScript >= 0) html = html.Insert(firstScript, controls);
             File.WriteAllText(indexPath, html);
